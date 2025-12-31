@@ -1,14 +1,12 @@
 # test2.py — CRM Voice Agent (Final Interruptible + Jitter-Free Build)
 import asyncio
 import os
-
+from config.db_config import init_db
 from piopiy.agent import Agent
 from piopiy.voice_agent import VoiceAgent
 from piopiy.audio.vad.silero import SileroVADAnalyzer
 
-
 from piopiy.audio.interruptions.min_words_interruption_strategy import MinWordsInterruptionStrategy
-
 
 from piopiy.services.openai.llm import OpenAILLMService
 from piopiy.services.google.stt import GoogleSTTService
@@ -27,7 +25,7 @@ load_dotenv()
 # ------------------ SESSION FACTORY ------------------
 async def create_session(call_id: str, agent_id: str, from_number: str, to_number: str):
     calling_no = str(from_number)
-    user.create_user_if_not_exists(calling_no)
+    asyncio.create_task(user.create_user_if_not_exists(calling_no))
     voice_agent = VoiceAgent(
         instructions=(
             """
@@ -124,9 +122,8 @@ Send alert once only.
 # LOCATION INTELLIGENCE
 
 When location mentioned:
-1. call get_police_station() send the area name to this tool
-2. Speak naturally: "The nearest police station is [name] in [area]."
-3. Provide: Officer name, phone, address
+If a user shares a area_name — find there nearest police station details by calling  call the `get_police_station` tool to get details of police station
+use police station details extrat the police station name, address, officer, phone no, mobile no. (repeate the mobile no of officers twice in words)
 
 
 # VERIFICATION SERVICES
@@ -140,7 +137,7 @@ For document/person verification:
 
 When relevant, add one safety tip:
 - Night travel: "Avoid isolated areas after dark."
-- Online fraud: "Never share OTP with anyone."
+- Online fraud: "Never share OTP with anyone."T
 - Women safety: "Share live location with family."
 - Child safety: "Teach emergency number 112."
 
@@ -154,7 +151,7 @@ When relevant, add one safety tip:
 - Empathetic interjections: "I understand", "That must be difficult"
 
 ## DON'T:
-- Use symbols (@, #, $)
+- Use symbols (@, #, $, +, -, ), }, *) make sure don't return any symbol in output
 - Technical jargon
 - Long monologues
 - Multiple questions at once
@@ -175,6 +172,7 @@ When relevant, add one safety tip:
 - Share officer personal numbers
 - Comment on ongoing cases
 - Accept complaints directly
+- make sure give response in small in ceat chat format
 
 # CULTURAL SENSITIVITY
 
@@ -193,7 +191,7 @@ If user is angry/frustrated:
 # CLOSING INTERACTIONS
 
 ## Successful help:
-"Thank you for contacting Nashik Gramin Police. Stay safe."
+"Thank you for contacting Nashik Gramin Police. jay maharashtra."
 
 ## Need to visit station:
 "Please visit the station with necessary documents."
@@ -223,12 +221,13 @@ mobile number: {calling_no}"""
 मराठी, हिंदी, किंवा इंग्रजी.
 
 कृपया भाषेचे नाव बोलून निवडा.""",
-idle_timeout_secs=1
+idle_timeout_secs=500
     )
     
     
     # Create the params object with compatible settings
     stt_params = GoogleSTTService.InputParams( 
+        languages=[Language.MR_IN, Language.EN_US, Language.HI_IN],  
         enable_automatic_punctuation=False,
         enable_spoken_punctuation=False,
         enable_spoken_emojis=False,
@@ -254,15 +253,17 @@ idle_timeout_secs=1
     stt = GoogleSTTService(
         credentials_path=os.getenv("GOOGLE_API_KEY"),
         params=stt_params,
+        sample_rate=16000
     )
+
 
     llm = OpenAILLMService(
         api_key=os.getenv("OPENAI_API_KEY"),
         stream=True
     )
 
-
-    vad = SileroVADAnalyzer()
+    
+    vad = SileroVADAnalyzer(sample_rate=16000)
 
     # ---- RUN AGENT ----lass SileroVADAnalyzer(
     await voice_agent.Action(
@@ -287,6 +288,7 @@ idle_timeout_secs=1
 
 # ------------------ MAIN ------------------
 async def main():
+    await init_db()
     print("🔑 AGENT_ID:", os.getenv("AGENT_ID"))
     print("🎙️ Starting CRM Voice Agent (Interruptible + Jitter-Free Build)...")
 

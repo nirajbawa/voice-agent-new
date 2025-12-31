@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from beanie import PydanticObjectId
 from models.user import UserModel
 
 async def create_user_if_not_exists(mobileNo: str):

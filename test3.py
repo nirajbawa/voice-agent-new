@@ -13,7 +13,7 @@ from piopiy.transcriptions.language import Language
 from piopiy.services.mcp_service import MCPClient, StreamableHttpParameters
 from piopiy.pipeline.service_switcher import ServiceSwitcher, ServiceSwitcherStrategyManual
 from piopiy.adapters.schemas.function_schema import FunctionSchema
-
+from mcp_server.utils.sendWhatsappMessage import send_whatsapp_message
 load_dotenv()
 
 async def create_session(call_id: str, agent_id: str, from_number: str, to_number: str):
@@ -39,6 +39,8 @@ CRITICAL: TWO SEPARATE TOOL CATEGORIES
 
 IMPORTANT: Language names (मराठी, हिंदी, English) are NOT locations.
 Never use get_police_station for language requests.
+
+call this function for emergenyc to send alert to police officer : send_alert_to_officer(message) make sure this message in english
 
 You are Rakshak AI, the official male voice based virtual assistant of Nashik Gramin Police.
 Your primary mission is to assist citizens with police-related inquiries.
@@ -129,25 +131,23 @@ Your primary mission is to assist citizens with police-related inquiries.
         print(f"🔄 Switching to: {language}")
         
         if language in ["marathi", "mr", "मराठी"]:
-            # Try different switching methods
-            try:
-                await stt_services.switch_service(marathi_stt)
-                await tts_services.switch_service(marathi_tts)
-            except:
-                # Fallback: Restart with Marathi services
-                pass
+            await voice_agent.switch_service(marathi_stt)
+            await voice_agent.switch_service(marathi_tts)
+            await params.result_callback(f"Switched to Hindi")
             return "Switched to Marathi"
             
         elif language in ["hindi", "hi", "हिंदी"]:
-            await stt_services.switch_service(hindi_stt)
-            await tts_services.switch_service(hindi_tts)
+            await voice_agent.switch_service(hindi_stt)
+            await voice_agent.switch_service(hindi_tts)
+            await params.result_callback(f"Switched to Hindi")
             return "Switched to Hindi"
             
         elif language in ["english", "en", "eng", "अंग्रेजी"]:
-            await stt_services.switch_service(english_stt)
-            await tts_services.switch_service(english_tts)
+            await voice_agent.switch_service(english_stt)
+            await voice_agent.switch_service(english_tts)
+            await params.result_callback(f"Switched to English")
             return "Switched to English"
-        
+        await params.result_callback(f"Unknown language: {language}")
         return f"Unknown language: {language}"
     
     language_tool_schema = FunctionSchema(
@@ -163,23 +163,79 @@ Your primary mission is to assist citizens with police-related inquiries.
         required=["language"]
     )
     
+    async def send_alert_to_officer(params):
+        print("called alert")
+        alert_message = params.arguments.get("message", "").lower()
+        print(alert_message)
+        template_message = {
+            "name": "alert_message_to_officer",
+            "language": {
+                "code": "en",
+            },
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {
+                            "type": "text",
+                            "text": alert_message
+                        } 
+                    ]
+                }
+            ]
+        }
+        out = await send_whatsapp_message(
+            phone_number=os.getenv("OFFICER_NUMBER"),
+            message=template_message,
+            is_template="template_with_components"
+        )
+        
+        print(out)
+        await params.result_callback("alert sended to the officer they will contact you shortly.")
+        return f"alert sended to the officer they will contact you shortly."
+
+
+    
+    alert_officer_schema = FunctionSchema(
+        name="send_alert_to_officer",  # Unique name
+        description="send the alert to police officer for help to control room",
+        properties={
+            "message": {
+                "type": "string",
+                "description": "details of incident in short"
+            }
+        },
+        required=["message"]
+    )
+    
+    async def search_police_station(param):
+        print("location called")
+    
+    
+    search_police_station_schema = FunctionSchema(
+        name="send_alert_to_officer",  # Unique name
+        description="send the alert to police officer for help to control room",
+        properties={
+            "message": {
+                "type": "string",
+                "description": "details of incident in short"
+            }
+        },
+        required=["message"]
+    )
+    
+    
     voice_agent.add_tool(language_tool_schema, change_assistant_language_handler)
+    voice_agent.add_tool(alert_officer_schema, send_alert_to_officer)
+    voice_agent.add_tool(search_police_station_schema, send_alert_to_officer)
     
-    # 2. GET MCP TOOLS
-    mcp_tools = []
-    try:
-        mcp = MCPClient(StreamableHttpParameters(url="http://127.0.0.1:8000/mcp"))
-        mcp_tools = await mcp.register_tools(llm)
-        print(f"✅ Loaded MCP tools: {[t.name for t in mcp_tools]}")
-    except Exception as e:
-        print(f"⚠️ MCP failed: {e}")
+
     
-    # 3. START ACTION WITH BOTH
+    # # 3. START ACTION WITH BOTH
     await voice_agent.Action(
         stt=stt_services,
         llm=llm, 
         tts=tts_services,
-        mcp_tools=mcp_tools,
         allow_interruptions=False, 
         vad=vad
     )
